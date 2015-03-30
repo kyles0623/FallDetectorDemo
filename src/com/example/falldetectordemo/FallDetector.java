@@ -25,12 +25,33 @@ public class FallDetector implements SensorEventListener {
 
 	private static final String TAG = "FallDetector";
 	
+	/**
+	 * Minimum threshold for detecting fall. This threshold
+	 * is used to start detecting the free fall component
+	 */
 	private static final double minThreshold = 3.75;
 	
+	/**
+	 * Max threshold is used to detect the hard 'fall'
+	 * after the freefall has been detected
+	 */
 	private static final double maxThreshold = 25.0;
 	
+	/**
+	 * The time it should take to get frmo min threshold to max threshold
+	 */
+	private static final int milliSecondsUntilMax = 30000;
+	
+	private long timeOfMin = -1;
+	
+	/**
+	 * Indicates whether the minimum fall detection has been met.
+	 */
 	private volatile boolean minMet = false;
 	
+	/**
+	 * Inidicates whether the maximum fall detection has been met.
+	 */
 	private volatile boolean maxMet = false;
 	
 	/**
@@ -53,27 +74,31 @@ public class FallDetector implements SensorEventListener {
 	 */
 	private float[] GValues = {0,0,0};
 	
+	/**
+	 * Lock object for synchronization purposes
+	 */
 	private final Object lockOject = new Object();
 	
+	/**
+	 * running boolean
+	 */
 	private final AtomicBoolean running;
 	
-	private final int windowtt = 4000, 
-	thresholdtt = 120, 
-	windowct = 4000, 
-	thresholdct = 50;
-	
-	private final int windowtv = 4000, 
-	thresholdtv = 6, 
-	windowcv = 4000, 
-	thresholdcv = 2;
-	
-	private double lastAv, lastAt;
-	
+	/**
+	 * Timer task to repetitively check for a fall 
+	 */
 	private Timer timer;
 	
+	/**
+	 * Callback to decide what happens when a fall is detected
+	 */
 	private FallDetectorCallback callback = null;
 	
 	
+	/**
+	 * Initialize the Fall Detector.
+	 * @param context
+	 */
 	public FallDetector(final Context context)
 	{
 		this.context = context;
@@ -86,6 +111,9 @@ public class FallDetector implements SensorEventListener {
 		
 	}
 	
+	/**
+	 * Pause the fall detection system
+	 */
 	public void pause()
 	{
 		running.set(false);
@@ -93,6 +121,10 @@ public class FallDetector implements SensorEventListener {
 		sensorHelper.pause();
 	}
 	
+	/**
+	 * Set the callback for notifying a fall detection
+	 * @param cb the FallDetectorCallback instance
+	 */
 	public void setCallback(FallDetectorCallback cb)
 	{
 		this.callback = cb;
@@ -100,14 +132,11 @@ public class FallDetector implements SensorEventListener {
 	
 	/**
 	 * starts detector.<br/>
-	 * <b>Note:</b> Should add fall detection callback.
+	 * <b>Note:</b> Should add fall detection callback before calling.
 	 */
 	public void runDetector()
 	{
 		sensorHelper.startSensors();
-		lastAt = calculateTotalAcceleration(AValues);
-		lastAv  = calculateVerticalAcceleration(AValues,GValues);
-
 		timer = new Timer();
 		
 		timer.schedule(new FallTimerTask(), 500,1);
@@ -133,20 +162,10 @@ public class FallDetector implements SensorEventListener {
 	}
 	
 	/**
-	 * 
-	 * | Av | = | Ax sin() + Ay sin()y - Az cos()y cos ()z |
+	 * Calculates total acceleration given the x,y,z acceleration values
+	 * @param AValues X,Y,Z Acceleration Values
+	 * @return
 	 */
-	private synchronized static double calculateVerticalAcceleration(float[] AValues, float[] GValues)
-	{
-		double Av = Math.abs(
-				AValues[0]*Math.sin(GValues[2]*180/Math.PI) 
-				+ AValues[1]*Math.sin(GValues[1]*180/Math.PI)
-				- AValues[2]*Math.cos(GValues[1]*180/Math.PI)*Math.cos(GValues[2]*180/Math.PI)
-				);
-		
-		return Av;
-	}
-	
 	private synchronized static double calculateTotalAcceleration(float[] AValues)
 	{
 		return Math.abs(
@@ -168,10 +187,17 @@ public class FallDetector implements SensorEventListener {
 			if(At <= minThreshold)
 			{
 				minMet = true;
+				timeOfMin = System.currentTimeMillis();
 			}
 			
 			if(minMet)
 			{
+				//If the time threshold has been passed, restart the check system.
+				if(System.currentTimeMillis() - timeOfMin > milliSecondsUntilMax)
+				{
+					minMet = false;
+				}
+				
 				if(At >= maxThreshold)
 				{
 					maxMet = true;
@@ -183,7 +209,6 @@ public class FallDetector implements SensorEventListener {
 				callback.onFallDetected();
 				minMet = false;
 				maxMet = false;
-				this.cancel();
 			}
 			else
 			{
